@@ -1,0 +1,696 @@
+// Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
+// See LICENSE.txt for license information.
+
+package config
+
+import (
+	"fmt"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+
+	"github.com/mattermost/mattermost/server/public/model"
+)
+
+func TestGetClientConfig(t *testing.T) {
+	t.Parallel()
+	testCases := []struct {
+		description    string
+		config         *model.Config
+		telemetryID    string
+		license        *model.License
+		expectedFields map[string]string
+	}{
+		{
+			"unlicensed",
+			&model.Config{
+				EmailSettings: model.EmailSettings{
+					EmailNotificationContentsType: model.NewPointer(model.EmailNotificationContentsFull),
+				},
+				ThemeSettings: model.ThemeSettings{
+					// Ignored, since not licensed.
+					AllowCustomThemes: model.NewPointer(false),
+				},
+				ServiceSettings: model.ServiceSettings{
+					WebsocketURL:        model.NewPointer("ws://mattermost.example.com:8065"),
+					WebsocketPort:       model.NewPointer(80),
+					WebsocketSecurePort: model.NewPointer(443),
+				},
+			},
+			"",
+			nil,
+			map[string]string{
+				"DiagnosticId":                     "",
+				"EmailNotificationContentsType":    "full",
+				"AllowCustomThemes":                "true",
+				"EnforceMultifactorAuthentication": "false",
+				"WebsocketURL":                     "ws://mattermost.example.com:8065",
+				"WebsocketPort":                    "80",
+				"WebsocketSecurePort":              "443",
+			},
+		},
+		{
+			"licensed, but not for theme management",
+			&model.Config{
+				EmailSettings: model.EmailSettings{
+					EmailNotificationContentsType: model.NewPointer(model.EmailNotificationContentsFull),
+				},
+				ThemeSettings: model.ThemeSettings{
+					// Ignored, since not licensed.
+					AllowCustomThemes: model.NewPointer(false),
+				},
+			},
+			"tag1",
+			&model.License{
+				Features: &model.Features{
+					ThemeManagement: model.NewPointer(false),
+				},
+			},
+			map[string]string{
+				"DiagnosticId":                  "tag1",
+				"EmailNotificationContentsType": "full",
+				"AllowCustomThemes":             "true",
+			},
+		},
+		{
+			"licensed for theme management",
+			&model.Config{
+				EmailSettings: model.EmailSettings{
+					EmailNotificationContentsType: model.NewPointer(model.EmailNotificationContentsFull),
+				},
+				ThemeSettings: model.ThemeSettings{
+					AllowCustomThemes: model.NewPointer(false),
+				},
+			},
+			"tag2",
+			&model.License{
+				Features: &model.Features{
+					ThemeManagement: model.NewPointer(true),
+				},
+			},
+			map[string]string{
+				"DiagnosticId":                  "tag2",
+				"EmailNotificationContentsType": "full",
+				"AllowCustomThemes":             "false",
+			},
+		},
+		{
+			"licensed for enforcement",
+			&model.Config{
+				ServiceSettings: model.ServiceSettings{
+					EnforceMultifactorAuthentication: model.NewPointer(true),
+				},
+			},
+			"tag1",
+			&model.License{
+				Features: &model.Features{
+					MFA: model.NewPointer(true),
+				},
+			},
+			map[string]string{
+				"EnforceMultifactorAuthentication": "true",
+			},
+		},
+		{
+			"default marketplace",
+			&model.Config{
+				PluginSettings: model.PluginSettings{
+					MarketplaceURL: model.NewPointer(model.PluginSettingsDefaultMarketplaceURL),
+				},
+			},
+			"tag1",
+			nil,
+			map[string]string{
+				"IsDefaultMarketplace": "true",
+			},
+		},
+		{
+			"non-default marketplace",
+			&model.Config{
+				PluginSettings: model.PluginSettings{
+					MarketplaceURL: model.NewPointer("http://example.com"),
+				},
+			},
+			"tag1",
+			nil,
+			map[string]string{
+				"IsDefaultMarketplace": "false",
+			},
+		},
+		{
+			"enable ShowFullName prop",
+			&model.Config{
+				PrivacySettings: model.PrivacySettings{
+					ShowFullName: model.NewPointer(true),
+				},
+			},
+			"tag1",
+			nil,
+			map[string]string{
+				"ShowFullName": "true",
+			},
+		},
+		{
+			"enable UseAnonymousURLs prop",
+			&model.Config{
+				PrivacySettings: model.PrivacySettings{
+					UseAnonymousURLs: model.NewPointer(true),
+				},
+			},
+			"tag1",
+			nil,
+			map[string]string{
+				"UseAnonymousURLs": "true",
+			},
+		},
+		{
+			"Custom groups professional license",
+			&model.Config{},
+			"",
+			&model.License{
+				Features:     &model.Features{},
+				SkuShortName: model.LicenseShortSkuProfessional,
+			},
+			map[string]string{
+				"EnableCustomGroups": "true",
+			},
+		},
+		{
+			"Custom groups enterprise license",
+			&model.Config{},
+			"",
+			&model.License{
+				Features:     &model.Features{},
+				SkuShortName: model.LicenseShortSkuEnterprise,
+			},
+			map[string]string{
+				"EnableCustomGroups": "true",
+			},
+		},
+		{
+			"Custom groups other license",
+			&model.Config{},
+			"",
+			&model.License{
+				Features:     &model.Features{},
+				SkuShortName: "other",
+			},
+			map[string]string{
+				"EnableCustomGroups": "false",
+			},
+		},
+		{
+			"Shared channels other license",
+			&model.Config{
+				ConnectedWorkspacesSettings: model.ConnectedWorkspacesSettings{
+					EnableSharedChannels: model.NewPointer(true),
+				},
+			},
+			"",
+			&model.License{
+				Features: &model.Features{
+					SharedChannels: model.NewPointer(false),
+				},
+				SkuShortName: "other",
+			},
+			map[string]string{
+				"ExperimentalSharedChannels": "false",
+			},
+		},
+		{
+			"licensed for shared channels",
+			&model.Config{
+				ConnectedWorkspacesSettings: model.ConnectedWorkspacesSettings{
+					EnableSharedChannels: model.NewPointer(true),
+				},
+			},
+			"",
+			&model.License{
+				Features: &model.Features{
+					SharedChannels: model.NewPointer(true),
+				},
+				SkuShortName: "other",
+			},
+			map[string]string{
+				"ExperimentalSharedChannels": "true",
+			},
+		},
+		{
+			"Shared channels professional license",
+			&model.Config{
+				ConnectedWorkspacesSettings: model.ConnectedWorkspacesSettings{
+					EnableSharedChannels: model.NewPointer(true),
+				},
+			},
+			"",
+			&model.License{
+				Features: &model.Features{
+					SharedChannels: model.NewPointer(false),
+				},
+				SkuShortName: model.LicenseShortSkuProfessional,
+			},
+			map[string]string{
+				"ExperimentalSharedChannels": "true",
+			},
+		},
+		{
+			"disable EnableUserStatuses",
+			&model.Config{
+				ServiceSettings: model.ServiceSettings{
+					EnableUserStatuses: model.NewPointer(false),
+				},
+			},
+			"",
+			nil,
+			map[string]string{
+				"EnableUserStatuses": "false",
+			},
+		},
+		{
+			"Shared channels enterprise license",
+			&model.Config{
+				ConnectedWorkspacesSettings: model.ConnectedWorkspacesSettings{
+					EnableSharedChannels: model.NewPointer(true),
+				},
+			},
+			"",
+			&model.License{
+				Features: &model.Features{
+					SharedChannels: model.NewPointer(false),
+				},
+				SkuShortName: model.LicenseShortSkuEnterprise,
+			},
+			map[string]string{
+				"ExperimentalSharedChannels": "true",
+			},
+		},
+		{
+			"Disable App Bar",
+			&model.Config{
+				ExperimentalSettings: model.ExperimentalSettings{
+					DisableAppBar: model.NewPointer(true),
+				},
+			},
+			"",
+			nil,
+			map[string]string{
+				"DisableAppBar": "true",
+			},
+		},
+		{
+			"default EnableJoinLeaveMessage",
+			&model.Config{},
+			"tag1",
+			nil,
+			map[string]string{
+				"EnableJoinLeaveMessageByDefault": "true",
+			},
+		},
+		{
+			"disable EnableJoinLeaveMessage",
+			&model.Config{
+				TeamSettings: model.TeamSettings{
+					EnableJoinLeaveMessageByDefault: model.NewPointer(false),
+				},
+			},
+			"tag1",
+			nil,
+			map[string]string{
+				"EnableJoinLeaveMessageByDefault": "false",
+			},
+		},
+		{
+			"test key for GiphySdkKey",
+			&model.Config{
+				ServiceSettings: model.ServiceSettings{
+					GiphySdkKey: model.NewPointer(""),
+				},
+			},
+			"",
+			nil,
+			map[string]string{
+				"GiphySdkKey": model.ServiceSettingsDefaultGiphySdkKeyTest,
+			},
+		},
+		{
+			"report a problem values",
+			&model.Config{
+				SupportSettings: model.SupportSettings{
+					ReportAProblemType: model.NewPointer("type"),
+					ReportAProblemLink: model.NewPointer("http://example.com"),
+					ReportAProblemMail: model.NewPointer("mail"),
+					AllowDownloadLogs:  model.NewPointer(true),
+				},
+			},
+			"",
+			nil,
+			map[string]string{
+				"ReportAProblemType": "type",
+				"ReportAProblemLink": "http://example.com",
+				"ReportAProblemMail": "mail",
+				"AllowDownloadLogs":  "true",
+			},
+		},
+		{
+			"access control settings enabled",
+			&model.Config{
+				AccessControlSettings: model.AccessControlSettings{
+					EnableAttributeBasedAccessControl: model.NewPointer(true),
+					EnableUserManagedAttributes:       model.NewPointer(true),
+				},
+			},
+			"",
+			nil,
+			map[string]string{
+				"EnableAttributeBasedAccessControl": "true",
+				"EnableUserManagedAttributes":       "true",
+			},
+		},
+		{
+			"access control settings disabled",
+			&model.Config{
+				AccessControlSettings: model.AccessControlSettings{
+					EnableAttributeBasedAccessControl: model.NewPointer(false),
+					EnableUserManagedAttributes:       model.NewPointer(false),
+				},
+			},
+			"",
+			nil,
+			map[string]string{
+				"EnableAttributeBasedAccessControl": "false",
+				"EnableUserManagedAttributes":       "false",
+			},
+		},
+		{
+			"access control settings default",
+			&model.Config{},
+			"",
+			nil,
+			map[string]string{
+				"EnableAttributeBasedAccessControl": "false",
+				"EnableUserManagedAttributes":       "false",
+			},
+		},
+		{
+			"burn on read enabled",
+			&model.Config{
+				ServiceSettings: model.ServiceSettings{
+					EnableBurnOnRead:          model.NewPointer(true),
+					BurnOnReadDurationSeconds: model.NewPointer(1800), // 30 minutes in seconds
+				},
+			},
+			"",
+			nil,
+			map[string]string{
+				"EnableBurnOnRead":          "true",
+				"BurnOnReadDurationSeconds": "1800",
+			},
+		},
+		{
+			"burn on read disabled",
+			&model.Config{
+				ServiceSettings: model.ServiceSettings{
+					EnableBurnOnRead:          model.NewPointer(false),
+					BurnOnReadDurationSeconds: model.NewPointer(600), // 10 minutes in seconds
+				},
+			},
+			"",
+			nil,
+			map[string]string{
+				"EnableBurnOnRead":          "false",
+				"BurnOnReadDurationSeconds": "600",
+			},
+		},
+		{
+			"burn on read default",
+			&model.Config{},
+			"",
+			nil,
+			map[string]string{
+				"EnableBurnOnRead":          "true",
+				"BurnOnReadDurationSeconds": "600", // 10 minutes in seconds
+			},
+		},
+		{
+			"Intune MAM enabled with Enterprise Advanced license and Office365 AuthService",
+			&model.Config{
+				IntuneSettings: model.IntuneSettings{
+					Enable:      model.NewPointer(true),
+					TenantId:    model.NewPointer("12345678-1234-1234-1234-123456789012"),
+					ClientId:    model.NewPointer("87654321-4321-4321-4321-210987654321"),
+					AuthService: model.NewPointer(model.ServiceOffice365),
+				},
+			},
+			"",
+			&model.License{
+				Features:     &model.Features{},
+				SkuShortName: model.LicenseShortSkuEnterpriseAdvanced,
+			},
+			map[string]string{
+				"IntuneMAMEnabled": "true",
+				"IntuneScope":      "api://87654321-4321-4321-4321-210987654321/login.mattermost",
+			},
+		},
+		{
+			"Intune MAM disabled when not enabled",
+			&model.Config{
+				IntuneSettings: model.IntuneSettings{
+					Enable:      model.NewPointer(false),
+					TenantId:    model.NewPointer("12345678-1234-1234-1234-123456789012"),
+					ClientId:    model.NewPointer("87654321-4321-4321-4321-210987654321"),
+					AuthService: model.NewPointer(model.ServiceOffice365),
+				},
+			},
+			"",
+			&model.License{
+				Features:     &model.Features{},
+				SkuShortName: model.LicenseShortSkuEnterpriseAdvanced,
+			},
+			map[string]string{
+				"IntuneMAMEnabled": "false",
+			},
+		},
+		{
+			"Intune MAM disabled when TenantId is missing",
+			&model.Config{
+				IntuneSettings: model.IntuneSettings{
+					Enable:      model.NewPointer(true),
+					TenantId:    model.NewPointer(""),
+					ClientId:    model.NewPointer("87654321-4321-4321-4321-210987654321"),
+					AuthService: model.NewPointer(model.ServiceOffice365),
+				},
+			},
+			"",
+			&model.License{
+				Features:     &model.Features{},
+				SkuShortName: model.LicenseShortSkuEnterpriseAdvanced,
+			},
+			map[string]string{
+				"IntuneMAMEnabled": "false",
+			},
+		},
+		{
+			"Intune MAM disabled when ClientId is missing",
+			&model.Config{
+				IntuneSettings: model.IntuneSettings{
+					Enable:      model.NewPointer(true),
+					TenantId:    model.NewPointer("12345678-1234-1234-1234-123456789012"),
+					ClientId:    model.NewPointer(""),
+					AuthService: model.NewPointer(model.ServiceOffice365),
+				},
+			},
+			"",
+			&model.License{
+				Features:     &model.Features{},
+				SkuShortName: model.LicenseShortSkuEnterpriseAdvanced,
+			},
+			map[string]string{
+				"IntuneMAMEnabled": "false",
+			},
+		},
+		{
+			"Intune MAM not exposed with lower license tier",
+			&model.Config{
+				IntuneSettings: model.IntuneSettings{
+					Enable:      model.NewPointer(true),
+					TenantId:    model.NewPointer("12345678-1234-1234-1234-123456789012"),
+					ClientId:    model.NewPointer("87654321-4321-4321-4321-210987654321"),
+					AuthService: model.NewPointer(model.ServiceOffice365),
+				},
+			},
+			"",
+			&model.License{
+				Features:     &model.Features{},
+				SkuShortName: model.LicenseShortSkuProfessional,
+			},
+			map[string]string{},
+		},
+		{
+			"Intune MAM not exposed without license",
+			&model.Config{
+				IntuneSettings: model.IntuneSettings{
+					Enable:      model.NewPointer(true),
+					TenantId:    model.NewPointer("12345678-1234-1234-1234-123456789012"),
+					ClientId:    model.NewPointer("87654321-4321-4321-4321-210987654321"),
+					AuthService: model.NewPointer(model.ServiceOffice365),
+				},
+			},
+			"",
+			nil,
+			map[string]string{},
+		},
+		{
+			"Intune MAM enabled with Enterprise Advanced license and SAML AuthService",
+			&model.Config{
+				IntuneSettings: model.IntuneSettings{
+					Enable:      model.NewPointer(true),
+					TenantId:    model.NewPointer("12345678-1234-1234-1234-123456789012"),
+					ClientId:    model.NewPointer("87654321-4321-4321-4321-210987654321"),
+					AuthService: model.NewPointer(model.UserAuthServiceSaml),
+				},
+				SamlSettings: model.SamlSettings{
+					Enable: model.NewPointer(true),
+				},
+			},
+			"",
+			&model.License{
+				Features:     &model.Features{},
+				SkuShortName: model.LicenseShortSkuEnterpriseAdvanced,
+			},
+			map[string]string{
+				"IntuneMAMEnabled":  "true",
+				"IntuneScope":       "api://87654321-4321-4321-4321-210987654321/login.mattermost",
+				"IntuneAuthService": "saml",
+			},
+		},
+		{
+			"Intune MAM disabled when AuthService is missing",
+			&model.Config{
+				IntuneSettings: model.IntuneSettings{
+					Enable:      model.NewPointer(true),
+					TenantId:    model.NewPointer("12345678-1234-1234-1234-123456789012"),
+					ClientId:    model.NewPointer("87654321-4321-4321-4321-210987654321"),
+					AuthService: model.NewPointer(""),
+				},
+			},
+			"",
+			&model.License{
+				Features:     &model.Features{},
+				SkuShortName: model.LicenseShortSkuEnterpriseAdvanced,
+			},
+			map[string]string{
+				"IntuneMAMEnabled": "false",
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.description, func(t *testing.T) {
+			t.Parallel()
+
+			testCase.config.SetDefaults()
+			if testCase.license != nil {
+				testCase.license.Features.SetDefaults()
+			}
+
+			configMap := GenerateClientConfig(testCase.config, testCase.telemetryID, testCase.license)
+			for expectedField, expectedValue := range testCase.expectedFields {
+				actualValue, ok := configMap[expectedField]
+				if assert.True(t, ok, fmt.Sprintf("config does not contain %v", expectedField)) {
+					assert.Equal(t, expectedValue, actualValue)
+				}
+			}
+		})
+	}
+}
+
+func TestGetLimitedClientConfig(t *testing.T) {
+	t.Parallel()
+	testCases := []struct {
+		description    string
+		config         *model.Config
+		telemetryID    string
+		license        *model.License
+		expectedFields map[string]string
+	}{
+		{
+			"unlicensed",
+			&model.Config{
+				EmailSettings: model.EmailSettings{
+					EmailNotificationContentsType: model.NewPointer(model.EmailNotificationContentsFull),
+				},
+				ThemeSettings: model.ThemeSettings{
+					// Ignored, since not licensed.
+					AllowCustomThemes: model.NewPointer(false),
+				},
+				ServiceSettings: model.ServiceSettings{
+					WebsocketURL:        model.NewPointer("ws://mattermost.example.com:8065"),
+					WebsocketPort:       model.NewPointer(80),
+					WebsocketSecurePort: model.NewPointer(443),
+				},
+			},
+			"",
+			nil,
+			map[string]string{
+				"DiagnosticId":                     "",
+				"EnforceMultifactorAuthentication": "false",
+				"WebsocketURL":                     "ws://mattermost.example.com:8065",
+				"WebsocketPort":                    "80",
+				"WebsocketSecurePort":              "443",
+			},
+		},
+		{
+			"password settings",
+			&model.Config{
+				PasswordSettings: model.PasswordSettings{
+					MinimumLength: model.NewPointer(15),
+					Lowercase:     model.NewPointer(true),
+					Uppercase:     model.NewPointer(true),
+					Number:        model.NewPointer(true),
+					Symbol:        model.NewPointer(false),
+				},
+			},
+			"",
+			nil,
+			map[string]string{
+				"PasswordMinimumLength":    "15",
+				"PasswordRequireLowercase": "true",
+				"PasswordRequireUppercase": "true",
+				"PasswordRequireNumber":    "true",
+				"PasswordRequireSymbol":    "false",
+			},
+		},
+		{
+			"Feature Flags",
+			&model.Config{
+				FeatureFlags: &model.FeatureFlags{
+					TestFeature: "myvalue",
+				},
+			},
+			"",
+			nil,
+			map[string]string{
+				"FeatureFlagTestFeature": "myvalue",
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.description, func(t *testing.T) {
+			t.Parallel()
+
+			testCase.config.SetDefaults()
+			if testCase.license != nil {
+				testCase.license.Features.SetDefaults()
+			}
+
+			configMap := GenerateLimitedClientConfig(testCase.config, testCase.telemetryID, testCase.license)
+			for expectedField, expectedValue := range testCase.expectedFields {
+				actualValue, ok := configMap[expectedField]
+				if assert.True(t, ok, fmt.Sprintf("config does not contain %v", expectedField)) {
+					assert.Equal(t, expectedValue, actualValue)
+				}
+			}
+		})
+	}
+}

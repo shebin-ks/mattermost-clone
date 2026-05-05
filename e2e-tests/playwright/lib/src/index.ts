@@ -1,0 +1,91 @@
+// Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
+// See LICENSE.txt for license information.
+
+export {test, expect, PlaywrightExtended} from './test_fixture';
+export {testConfig} from './test_config';
+export {baseGlobalSetup} from './global_setup';
+export {TestBrowser} from './browser_context';
+export {getBlobFromAsset, getFileFromAsset} from './file';
+export {decomposeKorean, koreanTestPhrase, typeHangulCharacterWithIme, typeHangulWithIme} from './ime';
+export {duration, wait, newTestPassword} from './util';
+
+export {
+    ChannelsPage,
+    LandingLoginPage,
+    LoginPage,
+    RecapsPage,
+    ResetPasswordPage,
+    SignupPage,
+    ScheduledPostsPage,
+    SystemConsolePage,
+    DraftsPage,
+} from './ui/pages';
+
+export {
+    components,
+    GlobalHeader,
+    SearchBox,
+    ChannelsCenterView,
+    ChannelsSidebarLeft,
+    ChannelsSidebarRight,
+    ChannelsAppBar,
+    ChannelsHeader,
+    ChannelsPostCreate,
+    ChannelsPostEdit,
+    ChannelsPost,
+    ChannelSettingsModal,
+    DraftPost,
+    FindChannelsModal,
+    DeletePostModal,
+    DeleteScheduledPostModal,
+    SettingsModal,
+    PostDotMenu,
+    PostMenu,
+    ThreadFooter,
+    Footer,
+    MainHeader,
+    PostReminderMenu,
+    EmojiGifPicker,
+    GenericConfirmModal,
+    ScheduleMessageMenu,
+    ScheduleMessageModal,
+    ScheduledPostIndicator,
+    ScheduledDraftModal,
+    ScheduledPost,
+    SendMessageNowModal,
+    SystemConsoleFeatureDiscovery,
+    MessagePriority,
+    UserProfilePopover,
+    UserAccountMenu,
+    DeletePostConfirmationDialog,
+    RestorePostConfirmationDialog,
+    ProfileModal,
+} from './ui/components';
+
+export {TestArgs, ScreenshotOptions} from './types';
+
+export {
+    enableAutotranslationConfig,
+    disableAutotranslationConfig,
+    enableChannelAutotranslation,
+    disableChannelAutotranslation,
+    setUserChannelAutotranslation,
+    setMockSourceLanguage,
+    hasAutotranslationLicense,
+} from './autotranslation_helpers';
+export type {EnableAutotranslationOptions} from './autotranslation_helpers';
+// ABAC (Attribute-Based Access Control) helpers
+export {
+    createUserWithAttributes,
+    enableABAC,
+    disableABAC,
+    navigateToABACPage,
+    createBasicPolicy,
+    createAdvancedPolicy,
+    editPolicy,
+    deletePolicy,
+    runSyncJob,
+    verifyUserInChannel,
+    verifyUserNotInChannel,
+    updateUserAttributes,
+} from './server';
