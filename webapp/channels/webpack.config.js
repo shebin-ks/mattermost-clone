@@ -469,10 +469,6 @@ if (targetIsDevServer) {
                     context: '/oauth',
                     ...proxyToServer,
                 },
-                {
-                    context: '/signup',
-                    ...proxyToServer,
-                },
             ],
             port: 9005,
             devMiddleware: {
